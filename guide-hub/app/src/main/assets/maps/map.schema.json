@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Guide Hub building map",
+  "description": "Hand-written building map. Validated at load time by MapValidator (structural errors refuse the map; navigation-quality issues are warnings). Map frame: x = east, y = north, metres. Headings are degrees clockwise from +y (0 = +y/north, 90 = +x/east).",
+  "type": "object",
+  "required": ["building", "nodes", "edges"],
+  "properties": {
+    "building": {"type": "string"},
+    "floor": {"type": "integer", "default": 0},
+    "units": {"const": "m"},
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "x", "y"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "x": {"type": "number"},
+          "y": {"type": "number"},
+          "type": {"enum": ["junction", "room", "corridor", "entrance", "stairs", "lift", "marker"], "default": "corridor"},
+          "names": {"type": "array", "items": {"type": "string"}, "description": "Spoken names and aliases. Required (non-empty) for rooms."},
+          "marker": {
+            "type": "object",
+            "required": ["id", "facingDeg"],
+            "properties": {
+              "id": {"type": "integer", "minimum": 0, "maximum": 65535},
+              "facingDeg": {"type": "number", "description": "Heading of a user looking at the marker head-on (viewing direction)."},
+              "sizeM": {"type": "number", "exclusiveMinimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "lengthM", "headingDeg"],
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "lengthM": {"type": "number", "exclusiveMinimum": 0},
+          "headingDeg": {"type": "number", "description": "Heading when walking from -> to."},
+          "width": {"type": "number", "exclusiveMinimum": 0, "default": 2.0}
+        }
+      }
+    },
+    "landmarks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["nodeId", "say"],
+        "properties": {"nodeId": {"type": "string"}, "say": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Corridor demo: ambiguous request, person ahead, compass drop, arrival",
+  "map": "corridor_demo.json",
+  "start": {"node": "ENT", "headingDeg": 90},
+  "walkSpeedMps": 1.2,
+  "events": [
+    {"t": 1500, "type": "utterance", "text": "take me to the lab", "confidence": 0.92},
+    {"t": 4000, "type": "answer", "text": "the first one", "confidence": 0.9},
+    {"t": 9000, "type": "obstacle", "label": "person", "x": 8.5, "y": 0.0, "radius": 0.25, "durationMs": 6000},
+    {"t": 18000, "type": "drop", "link": "compass", "durationMs": 3000},
+    {"t": 45000, "type": "log", "text": "scenario finished"}
+  ]
+}

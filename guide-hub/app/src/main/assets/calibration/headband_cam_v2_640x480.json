@@ -1,0 +1,12 @@
+{
+  "_comment": "PLACEHOLDER intrinsics for Raspberry Pi Camera Module V2 (IMX219, 3.04 mm) at 640x480. Replace with values from docs/calibration.md before trusting marker ranges.",
+  "fx": 530.0,
+  "fy": 530.0,
+  "cx": 320.0,
+  "cy": 240.0,
+  "width": 640,
+  "height": 480,
+  "distortion": [0.0, 0.0, 0.0, 0.0, 0.0],
+  "cameraHeightM": 1.6,
+  "placeholder": true
+}

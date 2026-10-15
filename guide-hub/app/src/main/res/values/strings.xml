@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Guide Hub</string>
+    <string name="notif_channel">Navigation</string>
+    <string name="notif_locked">Guide Hub is locked</string>
+    <string name="notif_running">Guide Hub is running</string>
+    <string name="notif_navigating">Navigation active</string>
+    <string name="auth_title">Unlock Guide Hub</string>
+    <string name="auth_subtitle">Authentication required</string>
+</resources>

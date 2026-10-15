@@ -1,0 +1,34 @@
+{
+  "building": "AB1",
+  "floor": 1,
+  "units": "m",
+  "nodes": [
+    {"id": "ENT", "x": -3.0, "y": 0.0, "type": "entrance", "names": ["Main Entrance", "Entrance", "Exit"]},
+    {"id": "N1", "x": 0.0, "y": 0.0, "type": "junction", "marker": {"id": 12, "facingDeg": 90}},
+    {"id": "R101", "x": 0.0, "y": -3.0, "type": "room", "names": ["Library", "Room 101", "101"]},
+    {"id": "N2", "x": 10.0, "y": 0.0, "type": "junction", "marker": {"id": 13, "facingDeg": 90}},
+    {"id": "R110", "x": 10.0, "y": 3.0, "type": "room", "names": ["Staff Room", "Room 110", "110"]},
+    {"id": "N3", "x": 20.0, "y": 0.0, "type": "junction", "marker": {"id": 14, "facingDeg": 90}},
+    {"id": "R204", "x": 20.0, "y": 3.0, "type": "room", "names": ["Lab 204", "204", "Robotics Lab"]},
+    {"id": "R240", "x": 20.0, "y": -3.0, "type": "room", "names": ["Lab 240", "240", "Electronics Lab"]},
+    {"id": "N4", "x": 30.0, "y": 0.0, "type": "junction", "marker": {"id": 15, "facingDeg": 270}},
+    {"id": "W1", "x": 32.0, "y": 0.0, "type": "room", "names": ["Washroom", "Restroom", "Toilet"]},
+    {"id": "R250", "x": 30.0, "y": 3.0, "type": "room", "names": ["HOD Office", "Office", "Head of Department"]}
+  ],
+  "edges": [
+    {"from": "ENT", "to": "N1", "lengthM": 3.0, "headingDeg": 90, "width": 2.4},
+    {"from": "N1", "to": "R101", "lengthM": 3.0, "headingDeg": 180, "width": 1.2},
+    {"from": "N1", "to": "N2", "lengthM": 10.0, "headingDeg": 90, "width": 2.4},
+    {"from": "N2", "to": "R110", "lengthM": 3.0, "headingDeg": 0, "width": 1.2},
+    {"from": "N2", "to": "N3", "lengthM": 10.0, "headingDeg": 90, "width": 2.4},
+    {"from": "N3", "to": "R204", "lengthM": 3.0, "headingDeg": 0, "width": 1.2},
+    {"from": "N3", "to": "R240", "lengthM": 3.0, "headingDeg": 180, "width": 1.2},
+    {"from": "N3", "to": "N4", "lengthM": 10.0, "headingDeg": 90, "width": 2.4},
+    {"from": "N4", "to": "W1", "lengthM": 2.0, "headingDeg": 90, "width": 1.5},
+    {"from": "N4", "to": "R250", "lengthM": 3.0, "headingDeg": 0, "width": 1.2}
+  ],
+  "landmarks": [
+    {"nodeId": "N2", "say": "water cooler on your left"},
+    {"nodeId": "N3", "say": "notice board on your right"}
+  ]
+}

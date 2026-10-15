@@ -1,0 +1,30 @@
+# Android and Gradle generated files
+.gradle/
+**/build/
+**/local.properties
+
+# Generated APKs and app bundles
+*.apk
+*.aab
+
+# Local IDE files
+.idea/
+*.iml
+
+# Downloaded toolchains and native build output
+.tools/
+**/.tools/
+**/.cxx/
+**/.externalNativeBuild/
+
+# Signing keys and secrets
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+.env
+.env.*
+
+# Operating system files
+.DS_Store
+Thumbs.db
