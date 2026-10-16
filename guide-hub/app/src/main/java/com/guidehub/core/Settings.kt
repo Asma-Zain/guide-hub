@@ -26,7 +26,8 @@ data class AppSettings(
     val infoM: Double = 3.5,
     val hazardCooldownMs: Long = 3_000,
     val hazardVolume: Float = 0.5f,
-    val ttsRate: Float = 1.0f,
+    /** Slightly below the engine default: calm but not slow. Clamped to TTS_RATE_MIN..MAX. */
+    val ttsRate: Float = 0.95f,
     val ttsVolume: Float = 1.0f,
     val sttBackend: SttBackend = SttBackend.ANDROID,
     val markerDictionary: String = "DICT_APRILTAG_36h11",
@@ -43,6 +44,10 @@ data class AppSettings(
     val recordSession: Boolean = false,
     val recordFrames: Boolean = false,
     val autoRelisten: Boolean = true,
+    /** Ask "Lab 204, about 23 metres. Say yes to start" even when the match is unambiguous. */
+    val confirmDestination: Boolean = true,
+    /** Spoken-output voice to look for among the phone's on-device voices; blank = best local voice. */
+    val preferredVoice: String = Constants.PREFERRED_VOICE,
     val disclaimerAccepted: Boolean = false,
 )
 

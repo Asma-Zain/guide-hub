@@ -77,8 +77,8 @@ class AppContainer(val app: Application) {
     lateinit var audio: AudioFeedback; private set
     lateinit var pushToTalk: PushToTalk; private set
 
-    private val androidStt by lazy { AndroidSpeechToText(app, clock) }
-    private val voskStt by lazy { VoskSpeechToText(app, clock) }
+    val androidStt by lazy { AndroidSpeechToText(app, clock) { Permissions.hasMic(app) } }
+    private val voskStt by lazy { VoskSpeechToText(app, clock) { Permissions.hasMic(app) } }
     val scriptedStt = ScriptedSpeechToText(clock)
 
     private val _links = MutableStateFlow<LinkSet?>(null)
@@ -105,14 +105,35 @@ class AppContainer(val app: Application) {
     private var started = false
     private val jobs = mutableListOf<Job>()
 
+    /**
+     * The scripted fake is used only while the demo scenario is playing (its utterances are part of
+     * the script). Tap to Talk otherwise always uses a real recogniser; if none is available the
+     * session reports a clear error and the typed field is the fallback. (Previously simulator mode
+     * silently substituted the fake whenever the recogniser check failed, so the mic never opened.)
+     */
     private val sttProvider: () -> SpeechToText = {
         val s = settings.settings.value
         when {
-            scenarioPlayer.running || (s.simulatorMode && !androidStt.isAvailable()) -> scriptedStt
+            scenarioPlayer.running -> scriptedStt
             s.sttBackend == SttBackend.VOSK && voskStt.isAvailable() -> voskStt
             else -> androidStt
         }
     }
+
+    /** Human-readable STT backend that Tap to Talk will use, for Settings/Diagnostics. */
+    fun sttDescription(): String {
+        val s = settings.settings.value
+        return when {
+            s.sttBackend == SttBackend.VOSK && voskStt.isAvailable() -> "Vosk (offline model)"
+            s.sttBackend == SttBackend.VOSK -> "Vosk selected but no model installed, using Android: ${androidStt.activeBackend.value}"
+            !androidStt.isAvailable() -> "No speech recognition service on this phone"
+            else -> "Android SpeechRecognizer: ${androidStt.activeBackend.value}"
+        }
+    }
+
+    private val _demoRunning = MutableStateFlow(false)
+    /** True from Run Demo until it reaches arrival or Stop Demo is pressed. */
+    val demoRunning: StateFlow<Boolean> = _demoRunning.asStateFlow()
 
     /** Must be called on the main thread (TTS, MediaSession). Idempotent. */
     fun start() {
@@ -150,6 +171,10 @@ class AppContainer(val app: Application) {
             orchestrator.linksWanted.collect { wanted ->
                 _links.value?.let { it.compassSupervisor.setWanted(wanted); it.headbandSupervisor.setWanted(wanted) }
             }
+        }
+        // The demo is over once the simulated user arrives: stop the script so nothing else fires.
+        jobs += appScope.launch {
+            orchestrator.arrivedAt.collect { if (it != null && _demoRunning.value) { scenarioPlayer.stop(); _demoRunning.value = false } }
         }
         jobs += appScope.launch {
             settings.settings.map { it.recordSession }.distinctUntilChanged().collect { rec -> if (rec) recorder.start() else recorder.stop() }
@@ -229,7 +254,11 @@ class AppContainer(val app: Application) {
         if (_links.value?.simulated == false) { stopVision(); startVision(settings.settings.value) }
     }
 
+    /** Run Demo: one deterministic, paced corridor journey. Ignored while one is already running. */
     fun playDemoScenario(name: String = "corridor_demo_scenario.json") {
+        if (_demoRunning.value) return
+        _demoRunning.value = true
+        resetSimulation()
         if (!settings.settings.value.simulatorMode) settings.update { it.copy(simulatorMode = true) }
         val text = app.assets.open("scenarios/$name").bufferedReader().readText()
         val sc = ScenarioParser.parse(text)
@@ -237,6 +266,22 @@ class AppContainer(val app: Application) {
             settings.update { it.copy(mapAsset = sc.map) }
             loadMap(sc.map)
         }
-        scenarioPlayer.play(sc)
+        scenarioPlayer.play(sc).invokeOnCompletion { _demoRunning.value = false }
+    }
+
+    /** Stop Demo: cancel the scenario, its pending faults and obstacles, and every queued announcement. */
+    fun stopDemo() {
+        _demoRunning.value = false
+        resetSimulation()
+    }
+
+    private fun resetSimulation() {
+        scenarioPlayer.stop()
+        simWorld.clearObstacles()
+        mockCompass.available = true
+        mockCompass.responsive = true
+        mockHeadband.available = true
+        orchestrator.resetSession()
+        placeSimAtEntrance()
     }
 }

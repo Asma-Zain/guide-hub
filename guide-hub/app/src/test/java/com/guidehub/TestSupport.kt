@@ -33,13 +33,14 @@ class FakeAudio(override var stereo: Boolean = true) : AudioOutput {
     var listening = false
     var vibrations = 0
     var volume = 0.5f
+    var speechStops = 0
 
     override fun speak(text: String, priority: Priority, key: String?) { said += Said(text, priority) }
     override fun earcon(e: Earcon) { earcons += e }
     override fun hazardCue(hazards: List<Hazard>) { lastHazards = hazards }
     override fun beginListening() { listening = true }
     override fun endListening() { listening = false }
-    override fun stopSpeech() {}
+    override fun stopSpeech() { speechStops++ }
     override fun volumeStep(delta: Int): Float { volume = (volume + delta * 0.1f).coerceIn(0.1f, 1f); return volume }
     override fun vibrate() { vibrations++ }
     override suspend fun awaitSpeechDone() {}

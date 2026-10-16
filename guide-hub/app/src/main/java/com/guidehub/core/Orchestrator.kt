@@ -6,6 +6,7 @@ import com.guidehub.link.LinkSupervisor
 import com.guidehub.nav.Geo
 import com.guidehub.nav.MapGraph
 import com.guidehub.nav.MapLoadResult
+import com.guidehub.nav.NavCard
 import com.guidehub.nav.NavigationController
 import com.guidehub.nav.NeedleSmoother
 import com.guidehub.nav.PositionEstimator
@@ -28,6 +29,8 @@ import com.guidehub.voice.IntentParser
 import com.guidehub.voice.MatchResult
 import com.guidehub.voice.RuleBasedIntentParser
 import com.guidehub.voice.SpeechToText
+import com.guidehub.voice.SttErrorKind
+import com.guidehub.voice.SttProgress
 import com.guidehub.voice.SttResult
 import com.guidehub.voice.UserIntent
 import kotlinx.coroutines.CancellationException
@@ -98,6 +101,18 @@ class Orchestrator(
     val lastWall: StateFlow<WallEstimate?> = _lastWall.asStateFlow()
     private val _destination = MutableStateFlow<String?>(null)
     val destinationFlow: StateFlow<String?> = _destination.asStateFlow()
+    private val _voice = MutableStateFlow<VoiceState>(VoiceState.Idle)
+    /** Voice/typed input progress for the Guide screen. */
+    val voice: StateFlow<VoiceState> = _voice.asStateFlow()
+    private val _proposal = MutableStateFlow<DestinationProposal?>(null)
+    /** Destination(s) waiting for confirmation (state CONFIRMING). */
+    val proposal: StateFlow<DestinationProposal?> = _proposal.asStateFlow()
+    private val _navCard = MutableStateFlow<NavCard?>(null)
+    /** Next manoeuvre and progress while navigating. */
+    val navCard: StateFlow<NavCard?> = _navCard.asStateFlow()
+    private val _arrivedAt = MutableStateFlow<String?>(null)
+    /** Display name of the last destination reached; cleared when a new destination is chosen. */
+    val arrivedAt: StateFlow<String?> = _arrivedAt.asStateFlow()
 
     /** BLE peripherals may stay connected while locked only during an active navigation session (FR-1). */
     val linksWanted: StateFlow<Boolean> = combine(session.locked, session.state) { locked, _ ->
@@ -109,6 +124,12 @@ class Orchestrator(
         get() = _destination.value
         set(v) { _destination.value = v }
     private var listenJob: Job? = null
+    private var arrivalJob: Job? = null
+    /** True from the moment speech is stopped for the mic until the mic is closed again. */
+    private var micBusy = false
+    private var lastPttTs = Long.MIN_VALUE / 2
+    /** Incremented per listening session so late recogniser callbacks cannot overwrite newer state. */
+    private var voiceSession = 0
     private var sttFailures = 0
     private var confirmFailures = 0
     private var autoListenBudget = 0
@@ -188,12 +209,74 @@ class Orchestrator(
         scope.launch { onPushToTalk() }
     }
 
-    /** Typed destination / command (M3 text-driven navigation, debug). */
+    /** Typed destination / command (M3 text-driven navigation, and the typed fallback when STT is unavailable). */
     fun submitText(text: String) {
         scope.launch {
+            if (text.isBlank()) return@launch
             autoListenBudget = 0
+            if (listenJob?.isActive == true) listenJob?.cancel()
+            _voice.value = VoiceState.Processing(text)
             handleUtterance(Utterance(text, 1.0f, clock.now()))
+            settleVoice()
         }
+    }
+
+    /** Stop an open listening session without a result. */
+    fun cancelListening() {
+        scope.launch { if (listenJob?.isActive == true) listenJob?.cancel() }
+    }
+
+    /** Start navigation to proposal option [index] (the on-screen Start / choice buttons). */
+    fun confirmDestination(index: Int) {
+        scope.launch {
+            if (session.current != SessionState.CONFIRMING) return@launch
+            listenJob?.cancel()
+            candidates.getOrNull(index)?.let { beginNavigation(it) }
+        }
+    }
+
+    /** Reject the proposed destination(s) without starting navigation. */
+    fun declineDestination() {
+        scope.launch {
+            if (session.current != SessionState.CONFIRMING) return@launch
+            listenJob?.cancel()
+            clearProposal()
+            session.transition(SessionState.IDLE)
+            session.settleAfterNavigation()
+            say("Okay, cancelled.", Priority.INFO)
+        }
+    }
+
+    /** Explicit Stop action from the screen. */
+    fun stopNavigationNow() {
+        scope.launch {
+            if (session.navigationActive) stopNavigation("Navigation stopped.")
+        }
+    }
+
+    /** Hide the arrival card. */
+    fun dismissArrival() { _arrivedAt.value = null }
+
+    /**
+     * Abandon everything in progress (used when a demo is stopped): listening, confirmation,
+     * navigation and every queued announcement. Hazard beeps stop with the hazards themselves.
+     */
+    fun resetSession(): Job = scope.launch {
+        listenJob?.cancel()
+        arrivalJob?.cancel()
+        audio.stopSpeech()
+        clearProposal()
+        destination = null
+        nav?.stop()
+        position?.setRoute(null)
+        _route.value = null
+        _navCard.value = null
+        _arrivedAt.value = null
+        _voice.value = VoiceState.Idle
+        compass?.setTarget(0.0, CompassMode.IDLE)
+        if (session.current != SessionState.IDLE && session.current != SessionState.LOCKED) session.transition(SessionState.IDLE)
+        session.settleAfterNavigation()
+        announcer.reset()
     }
 
     // ===================== bus =====================
@@ -299,6 +382,7 @@ class Orchestrator(
         val g = n.update(upd)
         if (g.deviated) { replan(); return }
         if (g.stepChanged) n.route?.let { r -> bus.emit(RouteStepEvent(r.steps[g.stepIndex], g.stepIndex, r.steps.size, clock.now())) }
+        _navCard.value = n.card()
         g.announcements.forEach { sayNav(it) }
         if (g.arrived) { arrive(); return }
 
@@ -341,6 +425,7 @@ class Orchestrator(
         nav?.start(route)
         smoother.reset()
         _route.value = route
+        _navCard.value = nav?.card()
         return true
     }
 
@@ -363,7 +448,9 @@ class Orchestrator(
     private fun beginNavigation(c: Candidate) {
         val g = graph ?: return
         destination = c.node.id
-        candidates = emptyList()
+        clearProposal()
+        arrivalJob?.cancel()
+        _arrivedAt.value = null
         sttFailures = 0
         confirmFailures = 0
         announcer.reset()
@@ -378,6 +465,7 @@ class Orchestrator(
             afterPose()
         } else {
             _route.value = null
+            _navCard.value = null
             nav?.stop()
             say("Navigating to ${g.displayName(c.node.id)}. Looking for a marker to find your position. Turn your head slowly.", Priority.NAVIGATION)
             compass?.setTarget(0.0, CompassMode.IDLE)
@@ -386,13 +474,15 @@ class Orchestrator(
 
     private fun arrive() {
         session.transition(SessionState.ARRIVED)
+        _arrivedAt.value = graph?.displayName(nav?.route?.destination ?: destination ?: "") ?: destination
+        _navCard.value = null
         audio.earcon(Earcon.ARRIVED)
         compass?.setTarget(0.0, CompassMode.ARRIVED)
         nav?.stop()
         position?.setRoute(null)
         _route.value = null
         destination = null
-        scope.launch {
+        arrivalJob = scope.launch {
             delay(5_000)
             if (session.current == SessionState.ARRIVED) {
                 session.transition(SessionState.IDLE)
@@ -404,10 +494,13 @@ class Orchestrator(
 
     private fun stopNavigation(message: String) {
         destination = null
-        candidates = emptyList()
+        clearProposal()
         nav?.stop()
         position?.setRoute(null)
         _route.value = null
+        _navCard.value = null
+        // Drop queued turn instructions so nothing stale is spoken after the stop.
+        audio.stopSpeech()
         compass?.setTarget(0.0, CompassMode.IDLE)
         session.transition(SessionState.IDLE)
         session.settleAfterNavigation()
@@ -423,6 +516,11 @@ class Orchestrator(
             say("The app is locked. Unlock it on the phone first.", Priority.INFO)
             return
         }
+        // One physical press can arrive twice (screen tap bounce, earbud PRESS + DOUBLE_PRESS):
+        // ignore toggles within the debounce window so a single tap never starts and stops a session.
+        val now = clock.now()
+        if (now - lastPttTs < PTT_DEBOUNCE_MS) return
+        lastPttTs = now
         if (listenJob?.isActive == true) {
             listenJob?.cancel() // second press cancels listening
             return
@@ -433,38 +531,84 @@ class Orchestrator(
 
     private suspend fun listenOnce() {
         val stt = sttProvider()
+        val id = ++voiceSession
+        _voice.value = VoiceState.Preparing
         if (session.current == SessionState.IDLE || session.current == SessionState.ARRIVED) {
             session.transition(SessionState.AWAITING_DESTINATION)
         }
         var result: SttResult = SttResult.NoSpeech
         var cancelled = false
         try {
+            micBusy = true
+            // Stop routine speech first, then the "listening" cue, and open the mic only after the
+            // cue has played so neither the cue nor TTS is captured or cut by the HFP switch.
             audio.beginListening()
+            audio.earcon(Earcon.LISTEN_START)
+            delay(Constants.LISTEN_CUE_MS)
             mic.openMic()
             _listening.value = true
-            audio.earcon(Earcon.LISTEN_START)
-            result = stt.listen()
+            if (voiceSession == id) _voice.value = VoiceState.Listening()
+            result = stt.listen { p -> onSttProgress(id, p) }
         } catch (c: CancellationException) {
             cancelled = true
             throw c
         } finally {
             withContext(NonCancellable) {
                 _listening.value = false
+                if (cancelled && voiceSession == id) _voice.value = VoiceState.Cancelled
                 audio.earcon(Earcon.LISTEN_END)
                 mic.closeMic()
                 audio.endListening()
+                micBusy = false
                 if (cancelled) backToIdleIfAwaiting()
             }
         }
         when (result) {
-            is SttResult.Heard -> handleUtterance(result.utterance)
-            SttResult.NoSpeech -> { say("I didn't hear anything.", Priority.INFO); backToIdleIfAwaiting() }
-            is SttResult.Error -> { say("Speech recognition failed. ${result.message}", Priority.INFO); backToIdleIfAwaiting() }
+            is SttResult.Heard -> {
+                _voice.value = VoiceState.Processing(result.utterance.text)
+                handleUtterance(result.utterance)
+                settleVoice()
+            }
+            SttResult.NoSpeech -> {
+                _voice.value = VoiceState.Problem("I didn't hear anything. Tap to talk and try again, or type the destination.")
+                say("I didn't hear anything.", Priority.INFO)
+                backToIdleIfAwaiting()
+            }
+            is SttResult.Error -> {
+                _voice.value = VoiceState.Problem(result.message, result.kind)
+                say(spokenError(result), Priority.INFO)
+                backToIdleIfAwaiting()
+            }
         }
     }
 
+    private fun onSttProgress(id: Int, p: SttProgress) {
+        if (voiceSession != id || !micBusy) return
+        val partial = (_voice.value as? VoiceState.Listening)?.partial
+        _voice.value = when (p) {
+            SttProgress.Ready -> VoiceState.Listening(partial)
+            SttProgress.SpeechStarted -> VoiceState.Listening(partial, speechDetected = true)
+            is SttProgress.Partial -> VoiceState.Listening(p.text, speechDetected = true)
+            SttProgress.Processing -> VoiceState.Processing(partial)
+        }
+    }
+
+    private fun spokenError(e: SttResult.Error): String = when (e.kind) {
+        SttErrorKind.PERMISSION -> "Microphone permission is off. Allow it on the phone, or type the destination."
+        SttErrorKind.UNAVAILABLE -> "Speech recognition is not available on this phone. Please type the destination."
+        SttErrorKind.NETWORK -> "Speech recognition needs an offline speech pack or a network connection. Please type the destination."
+        SttErrorKind.BUSY -> "The speech recogniser is busy. Please try again."
+        SttErrorKind.AUDIO -> "The microphone could not be opened. Please try again."
+        SttErrorKind.OTHER -> "Speech recognition failed. Please try again."
+    }
+
+    /** After input was handled: a still-"processing" state means it succeeded quietly; return to idle. */
+    private fun settleVoice() {
+        if (_voice.value is VoiceState.Processing) _voice.value = VoiceState.Idle
+    }
+
     private fun maybeAutoListen() {
-        if (!cfg.autoRelisten || autoListenBudget <= 0 || session.locked.value) return
+        if (!cfg.autoRelisten || autoListenBudget <= 0 || session.locked.value || micBusy) return
         autoListenBudget--
         listenJob = scope.launch {
             audio.awaitSpeechDone()
@@ -483,6 +627,7 @@ class Orchestrator(
         if (session.locked.value) return
         if (u.text.isBlank() || u.confidence < Constants.STT_LOW_CONFIDENCE) {
             sttFailures++
+            _voice.value = VoiceState.Problem("Not sure I heard that right (“${u.text}”). Please say it again or type it.")
             say(
                 if (sttFailures >= 2) "I still didn't catch that. Please say the room number digit by digit, for example two zero four."
                 else "Sorry, I didn't catch that. Please repeat.",
@@ -527,6 +672,7 @@ class Orchestrator(
             )
             UserIntent.Unknown -> {
                 sttFailures++
+                _voice.value = VoiceState.Problem("I didn't understand “${u.text}”. Try “take me to Lab 204”.")
                 say("Sorry, I didn't understand. Say help to hear what you can say.", Priority.INFO)
                 maybeAutoListen()
             }
@@ -535,19 +681,18 @@ class Orchestrator(
     }
 
     private fun resolveDestination(query: String) {
-        val m = matcher ?: run { say("No building map is loaded.", Priority.INFO); return }
+        val m = matcher ?: run {
+            _voice.value = VoiceState.Problem("No building map is loaded.")
+            say("No building map is loaded.", Priority.INFO)
+            return
+        }
         when (val r = m.match(query)) {
-            is MatchResult.Confident -> beginNavigation(r.candidate)
-            is MatchResult.Ambiguous -> {
-                candidates = r.candidates
-                confirmFailures = 0
-                if (session.transition(SessionState.CONFIRMING)) {
-                    say(confirmQuestion(), Priority.INFO)
-                    maybeAutoListen()
-                }
-            }
+            is MatchResult.Confident ->
+                if (cfg.confirmDestination) propose(query, listOf(r.candidate)) else beginNavigation(r.candidate)
+            is MatchResult.Ambiguous -> propose(query, r.candidates)
             MatchResult.NoMatch -> {
                 sttFailures++
+                _voice.value = VoiceState.Problem("No room matching “$query” on this map. Try a room name or number.")
                 say(
                     "I couldn't find $query on this map. Please try again." +
                         if (sttFailures >= 2) " You can say the room number digit by digit." else "",
@@ -558,12 +703,43 @@ class Orchestrator(
         }
     }
 
+    /** Ask the user to confirm one destination, or choose between several. */
+    private fun propose(query: String, options: List<Candidate>) {
+        if (!session.transition(SessionState.CONFIRMING)) return
+        candidates = options
+        confirmFailures = 0
+        _arrivedAt.value = null
+        _proposal.value = DestinationProposal(query, options.map { c ->
+            DestinationOption(c.node.id, graph?.displayName(c.node.id) ?: c.name, previewDistance(c.node.id))
+        })
+        say(confirmQuestion(), Priority.INFO)
+        maybeAutoListen()
+    }
+
+    private fun clearProposal() {
+        candidates = emptyList()
+        _proposal.value = null
+    }
+
+    /** Route length from the current position estimate to [nodeId], without starting navigation. */
+    private fun previewDistance(nodeId: String): Double? {
+        val pos = position ?: return null
+        val r = router ?: return null
+        val e = pos.edge ?: return null
+        val viaTo = r.shortestPath(e.to, nodeId)?.let { p -> (e.lengthM - pos.s) + p.sumOf { it.lengthM } }
+        val viaFrom = r.shortestPath(e.from, nodeId)?.let { p -> pos.s + p.sumOf { it.lengthM } }
+        return listOfNotNull(viaTo, viaFrom).minOrNull()
+    }
+
     private fun candidateNames(): List<String> = candidates.map { graph?.displayName(it.node.id) ?: it.name }
 
     private fun confirmQuestion(): String {
         val n = candidateNames()
         return when (n.size) {
-            1 -> "Did you mean ${n[0]}?"
+            1 -> {
+                val d = _proposal.value?.options?.firstOrNull()?.distanceM
+                "${n[0]}${d?.let { ", about ${Turns.metres(it.coerceAtLeast(1.0))}" } ?: ""}. Say yes to start, or no."
+            }
             2 -> "Did you mean ${n[0]} or ${n[1]}?"
             else -> "Did you mean ${n.dropLast(1).joinToString(", ")}, or ${n.last()}?"
         }
@@ -580,16 +756,24 @@ class Orchestrator(
                     maybeAutoListen()
                 }
             Confirmation.No -> {
-                candidates = emptyList()
+                clearProposal()
                 session.transition(SessionState.IDLE)
                 session.settleAfterNavigation()
                 say("Okay. Where would you like to go?", Priority.INFO)
                 maybeAutoListen()
             }
             Confirmation.Unclear -> {
+                // "No, take me to the library": a new destination replaces the proposal.
+                val intent = parser.parse(text)
+                if (intent is UserIntent.NavigateTo && matcher?.match(intent.destinationQuery) !is MatchResult.NoMatch) {
+                    clearProposal()
+                    session.transition(SessionState.IDLE)
+                    resolveDestination(intent.destinationQuery)
+                    return
+                }
                 confirmFailures++
                 if (confirmFailures >= 2) {
-                    candidates = emptyList()
+                    clearProposal()
                     session.transition(SessionState.IDLE)
                     session.settleAfterNavigation()
                     say("Let's start again. Press the button and say your destination.", Priority.INFO)
@@ -678,7 +862,7 @@ class Orchestrator(
 
     private fun onLocked() {
         if (listenJob?.isActive == true) listenJob?.cancel()
-        if (session.current == SessionState.CONFIRMING) candidates = emptyList()
+        if (session.current == SessionState.CONFIRMING) clearProposal()
         session.lock()
     }
 
@@ -698,5 +882,9 @@ class Orchestrator(
     private fun sayNav(text: String) {
         lastNavInstruction = text
         say(text, Priority.NAVIGATION, key = "nav")
+    }
+
+    companion object {
+        const val PTT_DEBOUNCE_MS = 600L
     }
 }

@@ -30,7 +30,11 @@ import java.io.File
  *
  * Model: copy e.g. `vosk-model-small-en-in-0.4` to <filesDir>/vosk-model (see docs/STT.md).
  */
-class VoskSpeechToText(private val context: Context, private val clock: Clock) : SpeechToText {
+class VoskSpeechToText(
+    private val context: Context,
+    private val clock: Clock,
+    private val hasMicPermission: () -> Boolean,
+) : SpeechToText {
     override val name = "vosk"
     private var model: Model? = null
     private var grammar: String? = null
@@ -44,8 +48,9 @@ class VoskSpeechToText(private val context: Context, private val clock: Clock) :
     }
 
     @SuppressLint("MissingPermission")
-    override suspend fun listen(timeoutMs: Long): SttResult = withContext(Dispatchers.IO) {
-        if (!isAvailable()) return@withContext SttResult.Error("Vosk model not installed")
+    override suspend fun listen(timeoutMs: Long, onProgress: (SttProgress) -> Unit): SttResult = withContext(Dispatchers.IO) {
+        if (!hasMicPermission()) return@withContext SttResult.Error("Microphone permission is off.", SttErrorKind.PERMISSION)
+        if (!isAvailable()) return@withContext SttResult.Error("The Vosk model is not installed (see docs/STT.md).", SttErrorKind.UNAVAILABLE)
         val m = model ?: Model(modelDir.absolutePath).also { model = it }
         val rate = 16_000
         val rec = grammar?.let { Recognizer(m, rate.toFloat(), it) } ?: Recognizer(m, rate.toFloat())
@@ -55,21 +60,31 @@ class VoskSpeechToText(private val context: Context, private val clock: Clock) :
         val ns = if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(ar.audioSessionId)?.apply { enabled = true } else null
         val agc = if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(ar.audioSessionId)?.apply { enabled = true } else null
         try {
+            if (ar.state != AudioRecord.STATE_INITIALIZED) return@withContext SttResult.Error("The microphone could not be opened.", SttErrorKind.AUDIO)
             ar.startRecording()
+            onProgress(SttProgress.Ready)
+            var lastPartial = ""
             val buf = ShortArray(bufSize / 2)
             val deadline = clock.now() + timeoutMs
             var resultJson: String? = null
             while (clock.now() < deadline) {
                 ensureActive()
                 val n = ar.read(buf, 0, buf.size)
+                if (n < 0) return@withContext SttResult.Error("The microphone stopped delivering audio.", SttErrorKind.AUDIO)
                 if (n > 0 && rec.acceptWaveForm(buf, n)) { resultJson = rec.result; break }
+                val partial = partialText(rec.partialResult)
+                if (partial.isNotBlank() && partial != lastPartial) { lastPartial = partial; onProgress(SttProgress.Partial(partial)) }
             }
+            onProgress(SttProgress.Processing)
             parse(resultJson ?: rec.finalResult)
         } finally {
             runCatching { ar.stop() }
             ar.release(); ns?.release(); agc?.release(); rec.close()
         }
     }
+
+    private fun partialText(json: String): String =
+        runCatching { Json.parseToJsonElement(json).jsonObject["partial"]?.jsonPrimitive?.content }.getOrNull().orEmpty().replace("[unk]", "").trim()
 
     private fun parse(json: String): SttResult {
         val o = runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull() ?: return SttResult.NoSpeech

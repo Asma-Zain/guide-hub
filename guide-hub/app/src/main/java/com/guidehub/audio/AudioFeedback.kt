@@ -24,7 +24,7 @@ class AudioFeedback(
     private val earbuds: StateFlow<Boolean>,
 ) : AudioOutput {
     private lateinit var arbiter: PriorityArbiter
-    private val tts = AndroidTts(context) { id -> arbiter.onDone(id) }
+    private val tts = AndroidTts(context, { id -> arbiter.onDone(id) }, settings.settings.value.preferredVoice)
     private val player = EarconPlayer()
     private val beeper = HazardBeeper(player, scope)
 
@@ -35,6 +35,7 @@ class AudioFeedback(
             settings.settings.collect { s ->
                 tts.rate = s.ttsRate
                 tts.volume = s.ttsVolume
+                tts.setRequestedVoice(s.preferredVoice)
                 player.volume = s.hazardVolume
                 beeper.infoM = s.infoM
             }
@@ -43,6 +44,9 @@ class AudioFeedback(
     }
 
     override val stereo: Boolean get() = earbuds.value
+
+    /** The voice the TTS engine reports as active, and whether it is the requested one. */
+    val voiceStatus: StateFlow<TtsVoiceStatus> get() = tts.status
 
     override fun speak(text: String, priority: Priority, key: String?) {
         arbiter.submit(text, priority, key)

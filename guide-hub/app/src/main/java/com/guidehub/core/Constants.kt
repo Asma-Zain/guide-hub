@@ -46,6 +46,8 @@ object Constants {
     /** Headband is considered stale if no notification arrives within this window. */
     const val HEADBAND_STALE_MS = 3_000L
     const val MIC_ROUTE_SETTLE_MS = 300L
+    /** The LISTEN_START earcon is 120 ms; wait this long after it before opening the mic. */
+    const val LISTEN_CUE_MS = 180L
 
     // ---- Navigation ----
     const val ARRIVAL_RADIUS_M = 1.5
@@ -61,6 +63,12 @@ object Constants {
     // ---- STT ----
     const val STT_LOW_CONFIDENCE = 0.45f
     const val STT_DEFAULT_CONFIDENCE = 0.75f
+
+    // ---- TTS ----
+    /** Requested spoken-output voice. Only used if an on-device engine actually provides it (see AndroidTts). */
+    const val PREFERRED_VOICE = "Astra"
+    const val TTS_RATE_MIN = 0.7f
+    const val TTS_RATE_MAX = 1.3f
 
     const val EVENT_TAIL_SIZE = 300
 }

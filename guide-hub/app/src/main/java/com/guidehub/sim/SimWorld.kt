@@ -175,23 +175,48 @@ class SimWorld(
         d < within && b < 35
     }
 
+    /**
+     * True if (px, py) lies in the open floor of a corridor other than [except]. The building is the
+     * union of corridor rectangles (one per edge, width x length); a wall point inside another
+     * corridor is an opening (a junction or a doorway), not a wall.
+     */
+    private fun insideOtherCorridor(g: MapGraph, px: Double, py: Double, except: com.guidehub.nav.MapEdge): Boolean =
+        g.map.edges.any { o ->
+            if (o === except) return@any false
+            val a = g.nodes.getValue(o.from)
+            val s = (px - a.x) * Geo.dx(o.headingDeg) + (py - a.y) * Geo.dy(o.headingDeg)
+            val lat = (px - a.x) * Geo.dy(o.headingDeg) - (py - a.y) * Geo.dx(o.headingDeg)
+            s > -0.05 && s < o.lengthM + 0.05 && abs(lat) < o.width / 2 - 0.05
+        }
+
     private fun sweep(g: MapGraph, now: Long): TofSweepPacket {
-        val proj = g.nearestEdge(x, y, yaw) ?: return TofSweepPacket(now and 0xFFFFFFFFL, emptyList())
-        val e = proj.edge
-        val a = g.nodes.getValue(e.from)
+        if (g.nearestEdge(x, y, yaw) == null) return TofSweepPacket(now and 0xFFFFFFFFL, emptyList())
         val pts = (-60..60 step 5).map { ang ->
             val th = yaw + ang
             val dx = Geo.dx(th)
             val dy = Geo.dy(th)
             var best = Double.POSITIVE_INFINITY
-            // Side walls: lines parallel to the edge at +-width/2 from its centre line.
-            val nx = Geo.dy(e.headingDeg)
-            val ny = -Geo.dx(e.headingDeg)
-            val off = (x - a.x) * nx + (y - a.y) * ny
-            val nd = dx * nx + dy * ny
-            if (abs(nd) > 1e-6) for (side in listOf(-e.width / 2, e.width / 2)) {
-                val t = (side - off) / nd
-                if (t > 0.05) best = minOf(best, t)
+            // Side walls: segments parallel to each edge at +-width/2, spanning the edge's length,
+            // with openings where another corridor joins.
+            for (e in g.map.edges) {
+                val a = g.nodes.getValue(e.from)
+                val ux = Geo.dx(e.headingDeg)
+                val uy = Geo.dy(e.headingDeg)
+                val nx = uy
+                val ny = -ux
+                val off = (x - a.x) * nx + (y - a.y) * ny
+                val nd = dx * nx + dy * ny
+                if (abs(nd) < 1e-6) continue
+                for (side in listOf(-e.width / 2, e.width / 2)) {
+                    val t = (side - off) / nd
+                    if (t <= 0.05 || t >= best) continue
+                    val hx = x + t * dx
+                    val hy = y + t * dy
+                    val along = (hx - a.x) * ux + (hy - a.y) * uy
+                    if (along < 0 || along > e.lengthM) continue
+                    if (insideOtherCorridor(g, hx, hy, e)) continue
+                    best = t
+                }
             }
             // Obstacles as circles.
             for (o in obstaclesSnapshot()) {

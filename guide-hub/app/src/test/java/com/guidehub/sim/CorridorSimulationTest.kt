@@ -49,10 +49,11 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CorridorSimulationTest {
 
-    private class Rig(val scope: TestScope, locked: Boolean = false) {
+    /** [confirm] false: a confident match starts navigation at once (the pre-confirmation behaviour these tests cover). */
+    private class Rig(val scope: TestScope, locked: Boolean = false, confirm: Boolean = false) {
         val clock = Clock { scope.testScheduler.currentTime }
         val bus = EventBus()
-        val settings = InMemorySettingsRepository(AppSettings(disclaimerAccepted = true))
+        val settings = InMemorySettingsRepository(AppSettings(disclaimerAccepted = true, confirmDestination = confirm))
         val audio = FakeAudio()
         val mic = FakeMic()
         val stt = ScriptedSpeechToText(clock)

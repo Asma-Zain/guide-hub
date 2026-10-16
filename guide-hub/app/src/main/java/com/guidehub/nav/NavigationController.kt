@@ -129,8 +129,40 @@ class NavigationController(private val graph: MapGraph) {
         return Geo.norm180(bearing - pos.yawDeg)
     }
 
+    /** Snapshot for the on-screen direction card; null when no route is active. Pure read of current progress. */
+    fun card(): NavCard? {
+        val r = route ?: return null
+        val destName = graph.displayName(r.destination)
+        if (r.edges.isEmpty()) return NavCard(TurnType.ARRIVE, "Arrive at $destName", 0.0, 0.0, 0.0, 1, 1, destName)
+        val progress = (r.totalM - remainingM).coerceAtLeast(0.0)
+        val idx = stepIndex.coerceIn(0, r.steps.lastIndex)
+        val next = r.steps.getOrNull(idx + 1)
+        val toTurn = (r.offsetOf(r.steps[idx].lastEdge + 1) - progress).coerceAtLeast(0.0)
+        val (turn, text) = when {
+            next == null || next.turnType == TurnType.ARRIVE -> TurnType.ARRIVE to "Arrive at $destName"
+            else -> next.turnType to Turns.phrase(next.turnType)
+        }
+        val turnSteps = r.steps.count { it.turnType != TurnType.ARRIVE }
+        return NavCard(turn, text, toTurn, remainingM, r.totalM, (idx + 1).coerceAtMost(turnSteps.coerceAtLeast(1)), turnSteps.coerceAtLeast(1), destName)
+    }
+
     fun describeRemaining(): String {
         val r = route ?: return "No active route."
         return "About ${Turns.metres(remainingM)} to ${graph.displayName(r.destination)}."
     }
+}
+
+/** What the Guide screen shows during navigation: the next manoeuvre and progress. */
+data class NavCard(
+    /** The manoeuvre at the end of the current leg (ARRIVE on the last leg). */
+    val turn: TurnType,
+    val instruction: String,
+    val distanceToTurnM: Double,
+    val remainingM: Double,
+    val totalM: Double,
+    val legNumber: Int,
+    val legCount: Int,
+    val destination: String,
+) {
+    val progress: Float get() = if (totalM <= 0) 1f else ((totalM - remainingM) / totalM).toFloat().coerceIn(0f, 1f)
 }

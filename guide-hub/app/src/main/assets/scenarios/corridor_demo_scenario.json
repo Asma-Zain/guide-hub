@@ -1,13 +1,13 @@
 {
-  "name": "Corridor demo: ambiguous request, person ahead, compass drop, arrival",
+  "name": "Corridor demo: choose Lab 204, person ahead, compass drop and recovery, arrival",
   "map": "corridor_demo.json",
   "start": {"node": "ENT", "headingDeg": 90},
-  "walkSpeedMps": 1.2,
+  "walkSpeedMps": 0.9,
   "events": [
-    {"t": 1500, "type": "utterance", "text": "take me to the lab", "confidence": 0.92},
-    {"t": 4000, "type": "answer", "text": "the first one", "confidence": 0.9},
-    {"t": 9000, "type": "obstacle", "label": "person", "x": 8.5, "y": 0.0, "radius": 0.25, "durationMs": 6000},
-    {"t": 18000, "type": "drop", "link": "compass", "durationMs": 3000},
-    {"t": 45000, "type": "log", "text": "scenario finished"}
+    {"t": 2000, "type": "utterance", "text": "take me to the lab", "confidence": 0.92},
+    {"t": 6000, "type": "answer", "text": "the first one", "confidence": 0.9},
+    {"t": 14000, "type": "obstacle", "label": "person", "x": 8.5, "y": 0.0, "radius": 0.25, "durationMs": 7000},
+    {"t": 28000, "type": "drop", "link": "compass", "durationMs": 6000},
+    {"t": 70000, "type": "log", "text": "scenario finished"}
   ]
 }

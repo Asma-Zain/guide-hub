@@ -11,6 +11,7 @@ import com.guidehub.core.LogEvent
 import com.guidehub.core.Utterance
 import com.guidehub.protocol.ButtonPacket
 import com.guidehub.voice.SpeechToText
+import com.guidehub.voice.SttProgress
 import com.guidehub.voice.SttResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -30,9 +31,11 @@ class ScriptedSpeechToText(private val clock: Clock) : SpeechToText {
 
     fun enqueue(text: String, confidence: Float = 0.9f) { queue.trySend(text to confidence) }
 
-    override suspend fun listen(timeoutMs: Long): SttResult {
+    override suspend fun listen(timeoutMs: Long, onProgress: (SttProgress) -> Unit): SttResult {
         listenCount++
+        onProgress(SttProgress.Ready)
         val item = withTimeoutOrNull(timeoutMs) { queue.receive() } ?: return SttResult.NoSpeech
+        onProgress(SttProgress.Processing)
         return SttResult.Heard(Utterance(item.first, item.second, clock.now()))
     }
 }
