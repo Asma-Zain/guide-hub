@@ -133,6 +133,9 @@ class VoiceFlowTest {
         assertFalse(p.ambiguous)
         assertEquals("R204", p.options.single().nodeId)
         assertNotNull(p.options.single().distanceM)
+        val steps = p.options.single().steps
+        assertEquals(steps.toString(), "Arrive", steps.last())
+        assertTrue(steps.toString(), steps.first().startsWith("Straight") && steps.any { it.startsWith("Left") })
         assertTrue(r.audio.texts().toString(), r.audio.any("Lab 204, about") && r.audio.any("Say yes to start"))
         // The automatic re-listen hears "yes" and navigation starts.
         advanceTimeBy(5_000)

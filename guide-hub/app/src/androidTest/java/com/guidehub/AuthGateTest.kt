@@ -25,8 +25,8 @@ class AuthGateTest {
     fun launchesLocked() {
         assertTrue(container.auth.locked.value)
         rule.onNodeWithText("Authentication required").assertIsDisplayed()
-        rule.onNodeWithText("Tap to talk").assertDoesNotExist()
-        rule.onNodeWithText("Debug").assertDoesNotExist()
+        rule.onNodeWithText("Tap to Talk").assertDoesNotExist()
+        rule.onNodeWithText("Diagnostics").assertDoesNotExist()
     }
 
     @Test
@@ -42,11 +42,11 @@ class AuthGateTest {
             container.auth.onAuthenticated()
         }
         rule.waitForIdle()
-        rule.onNodeWithText("Guide").assertIsDisplayed()
+        rule.onNodeWithText("Tap to Talk").assertIsDisplayed()
         rule.runOnUiThread { container.auth.lock() }
         rule.waitForIdle()
         rule.onNodeWithText("Authentication required").assertIsDisplayed()
-        rule.onNodeWithText("Guide").assertDoesNotExist()
+        rule.onNodeWithText("Tap to Talk").assertDoesNotExist()
     }
 
     @Test

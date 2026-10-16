@@ -1,0 +1,5 @@
+<resources>
+    <!-- Mirrors ui/Theme.kt Palette for the window behind Compose. -->
+    <color name="background">#FFF6F7F5</color>
+    <color name="surface">#FFFFFFFF</color>
+</resources>

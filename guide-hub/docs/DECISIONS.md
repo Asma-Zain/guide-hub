@@ -75,6 +75,28 @@ Where the PRD was ambiguous, the stated default was taken (PRD §15). Each entry
 29. The simulator pushes ToF sweeps through the real BLE codec + `HeadbandLink`, and emits markers/VO/objects as
     phone-side vision results (what `FrameProcessor` would produce).
 
+## Demo-readiness pass (October 2026)
+30. **Astra voice**: the requested output voice is "Astra". The only Astra voices found are cloud TTS products
+    (e.g. Telnyx `NaturalHD.astra`, an ElevenLabs-backed `astra`), which need a network and an API key. That
+    conflicts with the PRD (on-device only, no cloud in v1), so none was integrated. `AndroidTts` instead uses
+    an Astra voice only if the phone has an *on-device* engine or voice with that name; it rejects
+    network-only voices, verifies the active voice by reading it back from the engine, and otherwise uses the
+    best local en-IN/en-GB/en-US voice. Settings and Diagnostics state which voice is active and why.
+31. **Confirm before starting** (default on): even an unambiguous match is read back with a route-preview
+    distance and needs "yes" or Start. Ambiguous matches list the alternatives; picking one starts navigation.
+    Turn it off in Settings → Voice & Controls to restore the PRD's read-back-and-go behaviour.
+32. **Speech rate** defaults to 0.95× and is clamped to 0.7–1.3×.
+33. **Stopping navigation or a demo flushes queued speech** so no stale instruction plays afterwards.
+34. **Simulator walls** are bounded segments with openings where corridors meet (the walkable area is the union
+    of corridor rectangles). Infinite wall lines made the far wall appear ahead at junctions and doorways,
+    causing spurious beeps at turns and after arrival. Navigation and estimation code are unchanged.
+35. **Demo pacing**: 0.9 m/s walk, one person, one 6 s compass drop; the script ends at arrival. Hazard handling
+    itself is not slowed.
+
 ## Not implemented in v1 (known gaps)
 * Phone-camera fallback `FrameSource` (PRD §9 mentions it for testing); frames come from the headband or recordings.
+* `speakDistancesInSteps` / step length are stored settings but no speech path uses them yet (the switch is
+  hidden; step length is labelled as reserved).
+* A brief warning can sound mid-turn at a junction when the opposite corridor wall falls inside the ±0.45 m
+  walking path for one sweep. This is real ToF geometry, so it is left alone pending on-hardware tuning.
 * Measured latency instrumentation at the earbud output (needs hardware; see test_report_template.md).

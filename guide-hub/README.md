@@ -26,17 +26,19 @@ real codecs, links and estimators.
 
 ## Running without hardware
 
-Simulator mode is **on** by default (Settings → Simulator mode). Unlock the app and accept the safety disclaimer.
-Then either:
+Simulator mode is **on** by default (Settings → Hardware & Simulation). Unlock the app and accept the safety
+notice. The app has three tabs: **Guide**, **Settings** and **Diagnostics**. Then either:
 
-* **Guide tab → Run demo scenario.** This plays `assets/scenarios/corridor_demo_scenario.json`: "take me to the
-  lab" → "Did you mean Lab 204 or Lab 240?" → "the first one" → walk, person ahead, compass drop, arrival.
-* Type a destination ("take me to the library") or tap a destination button. The simulated user walks the route.
-* Or tap the big button and speak.
+* **Guide → Run Demo.** This plays `assets/scenarios/corridor_demo_scenario.json` once: "take me to the lab" →
+  "Did you mean Lab 204 or Lab 240?" → "the first one" → walk, person ahead, compass drop and recovery, arrival.
+  **Stop Demo** cancels it.
+* **Tap to Talk** and speak (real microphone and recogniser), or type a destination and tap **Find**. Confirm with
+  "yes" or **Start navigation**; the simulated user walks the route.
 
-The **Debug** tab shows link status, the position estimate against the simulated truth on the map, the ToF polar
-plot with wall fit and hazards, the compass panel with its command/ACK log, and the event-bus tail. It also has
-buttons to inject a person or drop the compass or headband.
+Step-by-step presenter script: `docs/DEMO.md`. Anything driven by the simulator is labelled SIMULATED.
+
+**Diagnostics** shows device status, the position estimate against the simulated truth on the map, the ToF polar
+plot, the compass command/ACK log, simulator controls and the event history, in collapsible sections.
 
 ## Real hardware
 
@@ -64,10 +66,10 @@ app/src/main/java/com/guidehub/
   protocol/   Packet codecs (compass, headband, frame header)
   sim/        MockCompassTransport, MockHeadbandTransport, SimWorld, ScenarioPlayer, ScriptedSpeechToText
   recording/  SessionRecorder / SessionReplayer (JSONL)
-  debug/      DebugScreen
-  ui/         MainActivity, screens, settings
+  debug/      DiagnosticsScreen
+  ui/         MainActivity, Theme (design tokens), Components, Guide/Lock/Disclaimer screens, Settings
 app/src/main/assets/  maps/ (corridor_demo.json, map.schema.json), scenarios/, calibration/, models/
-docs/          DECISIONS, esp32_contract, pi_contract, STT, audio_routing, calibration, models, test_report_template
+docs/          DEMO, DECISIONS, esp32_contract, pi_contract, STT, audio_routing, calibration, models, test_report_template
 ```
 
 ## Milestone status

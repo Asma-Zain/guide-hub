@@ -12,6 +12,7 @@ import com.guidehub.nav.NeedleSmoother
 import com.guidehub.nav.PositionEstimator
 import com.guidehub.nav.Route
 import com.guidehub.nav.Router
+import com.guidehub.nav.TurnType
 import com.guidehub.nav.Turns
 import com.guidehub.nav.WallEstimate
 import com.guidehub.nav.WallHeadingEstimator
@@ -710,7 +711,8 @@ class Orchestrator(
         confirmFailures = 0
         _arrivedAt.value = null
         _proposal.value = DestinationProposal(query, options.map { c ->
-            DestinationOption(c.node.id, graph?.displayName(c.node.id) ?: c.name, previewDistance(c.node.id))
+            val preview = previewRoute(c.node.id)
+            DestinationOption(c.node.id, graph?.displayName(c.node.id) ?: c.name, preview?.first, preview?.second.orEmpty())
         })
         say(confirmQuestion(), Priority.INFO)
         maybeAutoListen()
@@ -721,14 +723,32 @@ class Orchestrator(
         _proposal.value = null
     }
 
-    /** Route length from the current position estimate to [nodeId], without starting navigation. */
-    private fun previewDistance(nodeId: String): Double? {
+    /**
+     * Route from the current position estimate to [nodeId], without starting navigation: the
+     * shorter of leaving the current edge forwards or backwards. Null while the position is unknown.
+     */
+    private fun previewRoute(nodeId: String): Pair<Double, List<String>>? {
         val pos = position ?: return null
         val r = router ?: return null
         val e = pos.edge ?: return null
-        val viaTo = r.shortestPath(e.to, nodeId)?.let { p -> (e.lengthM - pos.s) + p.sumOf { it.lengthM } }
-        val viaFrom = r.shortestPath(e.from, nodeId)?.let { p -> pos.s + p.sumOf { it.lengthM } }
-        return listOfNotNull(viaTo, viaFrom).minOrNull()
+        val viaTo = r.shortestPath(e.to, nodeId)?.let { p -> Triple(listOf(e) + p, (e.lengthM - pos.s) + p.sumOf { it.lengthM }, pos.s) }
+        val viaFrom = r.shortestPath(e.from, nodeId)?.let { p -> Triple(listOf(e.reversed()) + p, pos.s + p.sumOf { it.lengthM }, e.lengthM - pos.s) }
+        val (edges, dist, walked) = listOfNotNull(viaTo, viaFrom).minByOrNull { it.second } ?: return null
+        val route = r.buildRoute(nodeId, edges)
+        val steps = route.steps.mapIndexed { i, st ->
+            val d = if (i == 0) (st.distanceM - walked).coerceAtLeast(0.0) else st.distanceM
+            val verb = when (st.turnType) {
+                TurnType.START, TurnType.STRAIGHT -> "Straight"
+                TurnType.LEFT -> "Left"
+                TurnType.RIGHT -> "Right"
+                TurnType.SLIGHT_LEFT -> "Bear left"
+                TurnType.SLIGHT_RIGHT -> "Bear right"
+                TurnType.U_TURN -> "Turn around"
+                TurnType.ARRIVE -> "Arrive"
+            }
+            if (st.turnType == TurnType.ARRIVE) verb else "$verb ${d.roundToInt()} m"
+        }.filterNot { it.endsWith(" 0 m") }
+        return dist to steps
     }
 
     private fun candidateNames(): List<String> = candidates.map { graph?.displayName(it.node.id) ?: it.name }

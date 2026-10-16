@@ -22,8 +22,12 @@ sealed class VoiceState {
     val micActive: Boolean get() = this is Preparing || this is Listening
 }
 
-/** One destination the user can confirm. [distanceM] is the route length from the current position estimate, if known. */
-data class DestinationOption(val nodeId: String, val name: String, val distanceM: Double?)
+/**
+ * One destination the user can confirm. [distanceM] is the route length from the current position
+ * estimate and [steps] a short route preview ("Straight 13 m", "Left 10 m", "Arrive"); both are
+ * empty/null until the position is known.
+ */
+data class DestinationOption(val nodeId: String, val name: String, val distanceM: Double?, val steps: List<String> = emptyList())
 
 /** Waiting for the user to confirm a destination (one option) or pick one of several (ambiguous). */
 data class DestinationProposal(val query: String, val options: List<DestinationOption>) {
